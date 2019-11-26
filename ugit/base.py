@@ -6,6 +6,7 @@ import string
 from collections import deque, namedtuple
 
 from . import data
+from . import diff
 
 
 def init ():
@@ -99,6 +100,14 @@ def read_tree (tree_oid):
             f.write (data.get_object (oid))
 
 
+def read_tree_merged (t_HEAD, t_other):
+    _empty_current_directory ()
+    for path, blob in diff.merge_trees (get_tree (t_HEAD), get_tree (t_other)).items ():
+        os.makedirs (f'./{os.path.dirname (path)}', exist_ok=True)
+        with open (path, 'wb') as f:
+            f.write (blob)
+
+
 def commit (message):
     commit = f'tree {write_tree ()}\n'
 
@@ -134,8 +143,13 @@ def reset (oid):
 
 
 def merge (other):
-    # TODO merge HEAD into other
-    pass
+    HEAD = data.get_ref ('HEAD').value
+    assert HEAD
+    c_HEAD = get_commit (HEAD)
+    c_other = get_commit (other)
+
+    read_tree_merged (c_HEAD.tree, c_other.tree)
+    print ('Merged in working tree')
 
 
 def create_tag (name, oid):
