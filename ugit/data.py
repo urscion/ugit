@@ -6,7 +6,23 @@ import pathlib
 import hashlib
 
 GIT_DIR = pathlib.Path('.ugit')
+HEAD_FILE = GIT_DIR / "HEAD"
 OBJECTS_DIR = GIT_DIR / 'objects'
+
+
+def set_HEAD(oid: str) -> None:
+    """Write the HEAD OID"""
+    HEAD_FILE.write_text(oid)
+
+
+def get_HEAD() -> str:
+    """Get HEAD OID
+
+    Returns:
+        OID of HEAD
+    """
+    if HEAD_FILE.is_file():
+        return HEAD_FILE.read_text()
 
 
 def init() -> None:

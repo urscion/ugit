@@ -1,11 +1,29 @@
 """Basic higher-level logic of ugit"""
 import pathlib
-from typing import Generator, Tuple
+import os
+from typing import Generator
+import itertools
+import operator
+from dataclasses import dataclass
 
 from . import data
 
 
+@dataclass
+class Commit:
+    tree: str
+    parent: str
+    message: str
+
+
 def write_tree(directory: str = '.') -> str:
+    """Write tree to objects
+
+    Args:
+        directory: Directory path
+    Returns:
+        OID of tree
+    """
     entries = []
     for entry in pathlib.Path(directory).iterdir():
         full = pathlib.Path(directory) / entry.name
@@ -36,6 +54,7 @@ def _iter_tree_entries(oid: str) -> Generator[str, str, str]:
 
 
 def get_tree(oid: str, base_path: str = '') -> dict:
+    """Recursively parse a tree into a dictionary of paths and OIDs"""
     result = {}
     for type_, oid, name in _iter_tree_entries(oid):
         assert '/' not in name
@@ -50,11 +69,81 @@ def get_tree(oid: str, base_path: str = '') -> dict:
     return result
 
 
+def _empty_current_directory():
+    # Start from the bottom to allow deletion of directories
+    for root, dirnames, filenames in os.walk(pathlib.Path('.'), topdown=False):
+        for fname in filenames:
+            path = pathlib.Path(root) / fname
+            if is_ignored(path) or not path.is_file():
+                continue
+            path.unlink()
+        for dname in dirnames:
+            path = pathlib.Path(root) / dname
+            if is_ignored(path):
+                continue
+            try:
+                path.rmdir()
+            except (FileNotFoundError, OSError):
+                # Deletion might fail if the dir contains ignored files, so OK
+                print(f"OK: Failed to delete: {path.resolve()}")
+                pass
+
+
 def read_tree(tree_oid: str):
+    _empty_current_directory()
     for path, oid in get_tree(tree_oid, base_path='.').items():
         file = pathlib.Path(path)
         file.parent.mkdir(exist_ok=True)
         file.write_bytes(data.get_object(oid))
+
+
+def commit(message) -> str:
+    """Perform a commit
+
+    Args:
+        message: commit message
+
+    Returns:
+        OID of commit object
+    """
+    commit = f"tree {write_tree()}\n"
+
+    HEAD = data.get_HEAD()
+    if HEAD:
+        commit += f"parent {HEAD}\n"
+
+    commit += '\n'
+    commit += f"{message}\n"
+
+    oid = data.hash_object(commit.encode(), 'commit')
+    data.set_HEAD(oid)
+    return oid
+
+
+def get_commit(oid: str) -> Commit:
+    """Get a commit by OID
+
+    Args:
+        oid: OID of the commit object
+
+    Returns:
+        Commit object
+    """
+    parent = None
+
+    commit_data = data.get_object(oid, 'commit').decode()
+    lines = iter(commit_data.splitlines())
+    for line in itertools.takewhile(operator.truth, lines):
+        key, value = line.split(' ', 1)
+        if key == 'tree':
+            tree = value
+        elif key == 'parent':
+            parent = value
+        else:
+            assert False, f"Unknown field {key}"
+
+    message = '\n'.join(lines)
+    return Commit(tree=tree, parent=parent, message=message)
 
 
 def is_ignored(path: str):
